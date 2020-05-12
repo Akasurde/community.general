@@ -42,7 +42,7 @@ EXAMPLES = '''
 - name: Prevent Apache / httpd from being updated
   yum_versionlock:
     state: present
-    package: httpd
+    pkg: httpd
 
 - name: Prevent multiple packages from being updated
   yum_versionlock:
@@ -60,7 +60,7 @@ EXAMPLES = '''
 '''
 
 RETURN = '''
-package:
+pkg:
     description: name of used package
     returned: everytime
     type: string
@@ -134,7 +134,7 @@ def main():
     )
 
     state = module.params['state']
-    package = module.params['package']
+    package = module.params['pkg']
     changed = False
 
     # Get yum path
