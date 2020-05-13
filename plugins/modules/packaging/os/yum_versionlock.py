@@ -1,34 +1,38 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-# Copyright (c) 2018, Florian Paul Hoberg <florian.hoberg@credativ.de>
-# Written by Florian Paul Hoberg <florian.hoberg@credativ.de>
-
+# Copyright: (c) 2018, Florian Paul Hoberg <florian.hoberg@credativ.de>
+#
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
-ANSIBLE_METADATA = {'metadata_version': '1.1',
-                    'status': ['preview'],
-                    'supported_by': 'community'}
+ANSIBLE_METADATA = {
+    'metadata_version': '1.1',
+    'status': ['preview'],
+    'supported_by': 'community'
+}
 
-DOCUMENTATION = '''
+DOCUMENTATION = r'''
 ---
 module: yum_versionlock
 version_added: 2.10
-short_description: Locks/Unlocks an installed package(s) from being updates by yum package manager
+short_description: Locks / Unlocks an installed package(s) from being updates by yum package manager
 description:
-     - This module adds installed packages to yum versionlock to prevent it from being updated.
+     - This module adds installed packages to yum versionlock to prevent the package from being updated.
+     - Please install yum-plugin-versionlock before using this module.
 options:
   pkg:
     description:
       - Package name or a list of packages.
-      type: list
+    type: list
+    required: True
+    elements: str
   state:
     description:
-      - Whether to lock C(present) or unlock C(absent) package(s).
-    choices: [ present, absent ]
+    - If state is C(present) or C(locked), package(s) will be added to yum versionlock list.
+    - If state is C(absent) or C(unlocked), package(s) will be removed from yum versionlock list.
+    choices: [ 'absent', 'locked', 'present', 'unlocked' ]
     type: str
     default: present
 requirements:
@@ -38,14 +42,14 @@ author:
     - Florian Paul Hoberg (@florianpaulhoberg)
 '''
 
-EXAMPLES = '''
+EXAMPLES = r'''
 - name: Prevent Apache / httpd from being updated
-  yum_versionlock:
+  community.general.yum_versionlock:
     state: present
     pkg: httpd
 
 - name: Prevent multiple packages from being updated
-  yum_versionlock:
+  community.general.yum_versionlock:
     state: present
     pkg:
     - httpd
@@ -53,120 +57,96 @@ EXAMPLES = '''
     - haproxy
     - curl
 
-- name:  Unlock Apache / httpd to be updated again
-  yum_versionlock:
+- name: Unlock Apache / httpd to be updated again
+  community.general.yum_versionlock:
     state: absent
     package: httpd
 '''
 
-RETURN = '''
-pkg:
-    description: name of used package
+RETURN = r'''
+packages:
+    description: A list of package in versionlock list
     returned: everytime
-    type: string
-    sample: httpd
+    type: list
+    sample: [ 'httpd' ]
 state:
     description: state of used package
     returned: everytime
-    type: string
+    type: str
     sample: present
 '''
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils._text import to_native
 
 
-def get_yum_path(module):
-    """ Get yum path """
-    yum_binary = module.get_bin_path('yum')
-    return yum_binary
+class YumVersionLock:
+    def __init__(self, module):
+        self.module = module
+        self.params = module.params
+        self.yum_bin = module.get_bin_path('yum', required=True)
 
+    def get_versionlock_packages(self):
+        """ Get an overview of all packages on yum versionlock """
+        rc, out, err = self.module.run_command("%s -q versionlock list" % self.yum_bin)
+        if rc == 0:
+            return out
+        elif rc == 1 and 'o such command:' in err:
+            self.module.fail_json(msg="Error: Please install rpm package yum-plugin-versionlock : " + to_native(err) + to_native(out))
+        self.module.fail_json(msg="Error: " + to_native(err) + to_native(out))
 
-def get_state_yum_versionlock(module, yum_binary):
-    """ Check for yum plugin dependency """
-    rc_code, out, err = module.run_command("%s -q info yum-plugin-versionlock"
-                                           % (yum_binary))
-    if rc_code == 0:
-        return out
-    else:
-        module.fail_json(msg="Error: Please install rpm package yum-plugin-versionlock | " + str(err) + str(out))
-
-
-def get_versionlock_packages(module, yum_binary):
-    """ Get an overview of all packages on yum versionlock """
-    rc_code, out, err = module.run_command("%s -q versionlock list"
-                                           % (yum_binary))
-    if rc_code == 0:
-        return out
-    else:
-        module.fail_json(msg="Error: " + str(err) + str(out))
-
-
-def add_package_versionlock(module, package, yum_binary):
-    """ Add package to yum versionlock """
-    rc_code, out, err = module.run_command("%s -q versionlock add %s"
-                                           % (yum_binary, package))
-    if rc_code == 0:
-        changed = True
-        return changed
-    else:
-        module.fail_json(msg="Error: " + str(err) + str(out))
-
-
-def remove_package_versionlock(module, package, yum_binary):
-    """ Remove package from yum versionlock """
-    rc_code, out, err = module.run_command("%s -q versionlock delete %s"
-                                           % (yum_binary, package))
-    if rc_code == 0:
-        changed = True
-        return changed
-    else:
-        module.fail_json(msg="Error: " + str(err) + str(out))
+    def ensure_state(self, package, command):
+        """ Ensure package state """
+        rc, out, err = self.module.run_command("%s -q versionlock %s %s" % (self.yum_bin, command, package))
+        if rc == 0:
+            return True
+        self.module.fail_json(msg="Error: " + to_native(err) + to_native(out))
 
 
 def main():
     """ start main program to add/remove a package to yum versionlock"""
     module = AnsibleModule(
         argument_spec=dict(
-            state=dict(default='present', choices=['present', 'absent']),
-            package=dict(required=True, type='str'),
+            state=dict(default='present', choices=['present', 'locked', 'unlocked', 'absent']),
+            pkg=dict(required=True, type='list', elements='str'),
         ),
-        supports_check_mode=False
+        supports_check_mode=True
     )
 
     state = module.params['state']
-    package = module.params['pkg']
+    packages = module.params['pkg']
     changed = False
 
-    # Get yum path
-    yum_binary = get_yum_path(module)
-
-    # Check for yum version lock plugin
-    get_state_yum_versionlock(module, yum_binary)
-
-    # Split 'package' string to list by whitespaces to support multiple values
-    packages = package.split()
+    yum_v = YumVersionLock(module)
 
     # Get an overview of all packages that have a version lock
-    versionlock_packages = get_versionlock_packages(module, yum_binary)
+    versionlock_packages = yum_v.get_versionlock_packages()
 
-    # Add package(s) to versionlock
-    if state == "present":
+    # Ensure versionlock state of packages
+    if state in ('present', 'locked'):
+        command = 'add'
         for single_pkg in packages:
             if single_pkg not in versionlock_packages:
-                changed = add_package_versionlock(module, single_pkg, yum_binary)
-
-    # Remove package(s) from versionlock
-    if state == "absent":
+                if module.check_mode:
+                    changed = True
+                    continue
+                changed = yum_v.ensure_state(single_pkg, command)
+    elif state in ('absent', 'unlocked'):
+        command = 'delete'
         for single_pkg in packages:
             if single_pkg in versionlock_packages:
-                changed = remove_package_versionlock(module, single_pkg, yum_binary)
+                if module.check_mode:
+                    changed = True
+                    continue
+                changed = yum_v.ensure_state(single_pkg, command)
 
-    # Create Ansible meta output
-    response = {"package": package, "state": state}
-    if changed is True:
-        module.exit_json(changed=True, meta=response)
-    else:
-        module.exit_json(changed=False, meta=response)
+    module.exit_json(
+        changed=changed,
+        meta={
+            "packages": packages,
+            "state": state
+        }
+    )
 
 
 if __name__ == '__main__':
