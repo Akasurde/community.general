@@ -23,6 +23,7 @@ options:
     - API token.
     - Required for api token authentication.
     - "You can obtain your API token from the bottom of the Cloudflare 'My Account' page, found here: U(https://dash.cloudflare.com/)"
+    - Can be specified in C(CLOUDFLARE_TOKEN) environment variable
     type: str
     required: false
     version_added: '0.2.0'
@@ -355,7 +356,7 @@ record:
 
 import json
 
-from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import AnsibleModule, env_fallback
 from ansible.module_utils.six.moves.urllib.parse import urlencode
 from ansible.module_utils._text import to_native, to_text
 from ansible.module_utils.urls import fetch_url
@@ -786,7 +787,12 @@ class CloudflareAPI(object):
 def main():
     module = AnsibleModule(
         argument_spec=dict(
-            api_token=dict(type='str', required=False, no_log=True),
+            api_token=dict(
+                type="str",
+                required=False,
+                no_log=True,
+                fallback=(env_fallback, ["CLOUDFLARE_TOKEN"]),
+            ),
             account_api_key=dict(type='str', required=False, no_log=True, aliases=['account_api_token']),
             account_email=dict(type='str', required=False),
             algorithm=dict(type='int'),
